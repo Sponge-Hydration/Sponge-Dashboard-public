@@ -1,8 +1,5 @@
-name = "group-view-dashboard-data-public"
-main = "./src/main.tsx"
+name = "sponge-dashboard"
 compatibility_date = "2024-08-01"
-compatibility_flags = []
-[site]
-bucket = "./dist"
+pages_build_output_dir = "./dist"
 [vars]
 API_KEY = ""
