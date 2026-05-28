@@ -11,7 +11,8 @@ import {
   LogOut,
   Menu,
   X,
-  ClipboardList
+  ClipboardList,
+  Droplets
 } from "lucide-react";
 
 type SidebarNavItem = {
@@ -22,6 +23,11 @@ type SidebarNavItem = {
 };
 
 const sidebarNavItems: SidebarNavItem[] = [
+  {
+    title: "My Hydration",
+    href: "/dashboard/me",
+    icon: Droplets,
+  },
   {
     title: "Overview",
     href: "/dashboard",

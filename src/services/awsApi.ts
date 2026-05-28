@@ -273,7 +273,136 @@ export class AwsApiService {
       console.error("Failed to update user nurse:", error);
       throw error;
     }
-  } 
+  }
+
+  // -------------------------------
+  // Individual User Endpoints
+  // -------------------------------
+
+  async getUserProfile(custId: string): Promise<any[]> {
+    try {
+      const params = { Type: 'readuser', CustID: custId };
+      return await this.makeRequest<any[]>(params);
+    } catch (error) {
+      console.error("Failed to get user profile:", error);
+      return [];
+    }
+  }
+
+  async getStreak(custId: string): Promise<number> {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const params = { Type: 'getstreak', CustID: custId, Date: today };
+      const result = await this.makeRequest<string[]>(params);
+      return parseInt(result[0]) || 0;
+    } catch (error) {
+      console.error("Failed to get streak:", error);
+      return 0;
+    }
+  }
+
+  async getGoal(custId: string): Promise<number> {
+    try {
+      const params = { Type: 'getGoal', CustID: custId };
+      const result = await this.makeRequest<any>(params);
+      if (Array.isArray(result)) return parseInt(result[0]) || 60;
+      if (typeof result === 'object' && result !== null) return parseInt(Object.values(result)[0] as string) || 60;
+      return parseInt(result) || 60;
+    } catch (error) {
+      console.error("Failed to get goal:", error);
+      return 60;
+    }
+  }
+
+  async getRetention(custId: string): Promise<any> {
+    try {
+      const params = { Type: 'getuserretention', CustID: custId };
+      return await this.makeRequest<any>(params);
+    } catch (error) {
+      console.error("Failed to get retention:", error);
+      return {};
+    }
+  }
+
+  async getAllConsumption(custId: string): Promise<ConsumptionData> {
+    try {
+      const params = { Type: 'getconsumptionall', CustID: custId };
+      const encrypted = await this.makeRequest<ConsumptionData>(params);
+      return await this.decryptConsumptionData(encrypted);
+    } catch (error) {
+      console.error("Failed to get all consumption:", error);
+      return {};
+    }
+  }
+
+  async getTodayConsumption(custId: string): Promise<ConsumptionData> {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const params = { Type: 'getconsumptiondaynew', CustID: custId, Date: today };
+      const encrypted = await this.makeRequest<ConsumptionData>(params);
+      return await this.decryptConsumptionData(encrypted);
+    } catch (error) {
+      console.error("Failed to get today consumption:", error);
+      return {};
+    }
+  }
+
+  async getMonthConsumption(custId: string, month: string): Promise<ConsumptionData> {
+    try {
+      const params = { Type: 'getconsumptionmonth', CustID: custId, Date: month };
+      const encrypted = await this.makeRequest<ConsumptionData>(params);
+      return await this.decryptConsumptionData(encrypted);
+    } catch (error) {
+      console.error("Failed to get month consumption:", error);
+      return {};
+    }
+  }
+
+  async getFilteredDates(custId: string, dateOne: string, dateTwo: string): Promise<ConsumptionData> {
+    try {
+      const params = { Type: 'getfiltereddates', CustID: custId, DateOne: dateOne, DateTwo: dateTwo };
+      const encrypted = await this.makeRequest<ConsumptionData>(params);
+      return await this.decryptConsumptionData(encrypted);
+    } catch (error) {
+      console.error("Failed to get filtered dates:", error);
+      return {};
+    }
+  }
+
+  private async decryptConsumptionData(data: ConsumptionData): Promise<ConsumptionData> {
+    const encryptedValues: string[] = [];
+    const entryMap: { date: string; entryIdx: number; field: number }[] = [];
+
+    for (const date in data) {
+      const entries = data[date];
+      entries.forEach((entry, entryIdx) => {
+        for (let field = 1; field < entry.length; field++) {
+          const val = entry[field];
+          if (typeof val === 'string' && val.includes('^')) {
+            entryMap.push({ date, entryIdx, field });
+            encryptedValues.push(val);
+          }
+        }
+      });
+    }
+
+    if (encryptedValues.length === 0) return data;
+
+    const decrypted = await this.decryptBatchServerSide(encryptedValues);
+    const result: ConsumptionData = JSON.parse(JSON.stringify(data));
+
+    decrypted.forEach((val, i) => {
+      const { date, entryIdx, field } = entryMap[i];
+      const num = val !== null ? parseFloat(val) : 0;
+      result[date][entryIdx][field] = isNaN(num) ? 0 : num;
+    });
+
+    return result;
+  }
+}
+
+export interface ConsumptionData {
+  [date: string]: any[][];
 }
 
 // ✅ Initialize API service
