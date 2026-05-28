@@ -12,6 +12,12 @@ node_modules
 dist-ssr
 *.local
 
+# Local secrets / Cloudflare dev
+.dev.vars
+.env
+.env.*
+.wrangler/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

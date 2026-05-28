@@ -10,6 +10,7 @@ import Dashboard from "./pages/Dashboard";
 import Patients from "./pages/Patients";
 import UserDetail from "./pages/UserDetail";
 import Nurses from "./pages/Nurses";
+import MyHydration from "./pages/MyHydration";
 import Login from "./pages/Login";
 
 const queryClient = new QueryClient();
@@ -26,8 +27,16 @@ const AppRoutes = () => (
         </AuthGuard>
       } 
     />
-    <Route 
-      path="/dashboard/patients" 
+    <Route
+      path="/dashboard/me"
+      element={
+        <AuthGuard>
+          <MyHydration />
+        </AuthGuard>
+      }
+    />
+    <Route
+      path="/dashboard/patients"
       element={
         <AuthGuard>
           <Patients />
