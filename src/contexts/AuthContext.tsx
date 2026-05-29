@@ -11,6 +11,8 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
   loading: boolean;
+  isNurse: boolean;
+  isAdmin: boolean;
 }
 
 // Create the context with a default value
@@ -20,6 +22,8 @@ const AuthContext = createContext<AuthContextType>({
   login: async () => false,
   logout: () => {},
   loading: true,
+  isNurse: false,
+  isAdmin: false,
 });
 
 // Hook to easily use the auth context
@@ -35,11 +39,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     const currentUser = firebaseService.getCurrentUser();
     if (currentUser) {
-      setUser(currentUser);
-      setIsAuthenticated(true);
       awsApi.setUserId(currentUser.id);
+      awsApi.getUserRole(currentUser.id).then((result) => {
+        const role = result.role ?? 'user';
+        setUser({ ...currentUser, role });
+        setIsAuthenticated(true);
+        setLoading(false);
+      }).catch(() => {
+        setUser({ ...currentUser, role: 'user' });
+        setIsAuthenticated(true);
+        setLoading(false);
+      });
+    } else {
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
   // Login function using Firebase
@@ -48,9 +61,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const authUser = await firebaseService.login(email, password);
       
       if (authUser) {
-        setUser(authUser);
-        setIsAuthenticated(true);
         awsApi.setUserId(authUser.id);
+        const roleResult = await awsApi.getUserRole(authUser.id);
+        const role = roleResult.role ?? 'user';
+        setUser({ ...authUser, role });
+        setIsAuthenticated(true);
         toast.success("Login successful");
         return true;
       }
@@ -76,9 +91,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  const isNurse = user?.role === 'nurse' || user?.role === 'admin';
+  const isAdmin = user?.role === 'admin';
+
   // Provide the auth context to child components
   return (
-    <AuthContext.Provider value={{ isAuthenticated, user, login, logout, loading }}>
+    <AuthContext.Provider value={{ isAuthenticated, user, login, logout, loading, isNurse, isAdmin }}>
       {children}
     </AuthContext.Provider>
   );

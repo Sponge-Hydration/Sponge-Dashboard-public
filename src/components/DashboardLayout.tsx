@@ -2,6 +2,7 @@
 import { ReactNode, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { AuthUser } from "@/services/firebaseService";
 import { Button } from "@/components/ui/button";
 import { SidebarNavItem as SidebarItemComponent } from "@/components/SidebarNavItem";
 import {
@@ -12,14 +13,17 @@ import {
   Menu,
   X,
   ClipboardList,
-  Droplets
+  Droplets,
+  Heart,
+  ShieldCheck,
 } from "lucide-react";
 
 type SidebarNavItem = {
   title: string;
   href: string;
   icon: React.ElementType;
-  external?: boolean; 
+  external?: boolean;
+  roles?: AuthUser['role'][];
 };
 
 const sidebarNavItems: SidebarNavItem[] = [
@@ -29,19 +33,34 @@ const sidebarNavItems: SidebarNavItem[] = [
     icon: Droplets,
   },
   {
+    title: "My Family",
+    href: "/dashboard/family",
+    icon: Heart,
+    roles: ['user'],
+  },
+  {
     title: "Overview",
     href: "/dashboard",
     icon: LayoutDashboard,
+    roles: ['nurse', 'admin'],
   },
   {
     title: "Patients",
     href: "/dashboard/patients",
     icon: Users,
+    roles: ['nurse', 'admin'],
   },
   {
     title: "Nurses",
     href: "/dashboard/nurses",
     icon: ClipboardList,
+    roles: ['nurse', 'admin'],
+  },
+  {
+    title: "Admin",
+    href: "/dashboard/admin",
+    icon: ShieldCheck,
+    roles: ['admin'],
   },
   {
     title: "Buy More Products",
@@ -56,7 +75,12 @@ interface DashboardLayoutProps {
 }
 
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
-  const { user, logout } = useAuth();
+  const { user, logout, isNurse, isAdmin } = useAuth();
+  const role = user?.role ?? 'user';
+
+  const visibleNavItems = sidebarNavItems.filter(
+    (item) => !item.roles || item.roles.includes(role)
+  );
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
@@ -87,7 +111,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         </div>
         
         <div className="flex-1 py-6 px-3 space-y-1">
-          {sidebarNavItems.map((item) => (
+          {visibleNavItems.map((item) => (
             <SidebarItemComponent
               key={item.href}
               title={item.title}

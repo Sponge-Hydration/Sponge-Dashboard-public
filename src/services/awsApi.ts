@@ -88,11 +88,82 @@ export class AwsApiService {
   // -------------------------------
   // Group data with server decryption (Rewritten for Order)
   // -------------------------------
+  async getAllLinks(): Promise<{ parentCustId: string; parentName: string; childCustId: string; childName: string }[]> {
+    try {
+      return await this.makeRequest({ Type: 'getalllinks' });
+    } catch (error) {
+      console.error("Failed to get all links:", error);
+      return [];
+    }
+  }
+
+  async getAllUsers(): Promise<{ CustID: string; Name: string; role: 'user' | 'nurse' | 'admin' }[]> {
+    try {
+      return await this.makeRequest({ Type: 'getallusers' });
+    } catch (error) {
+      console.error("Failed to get all users:", error);
+      return [];
+    }
+  }
+
+  async setUserRole(custId: string, role: 'user' | 'nurse' | 'admin'): Promise<any> {
+    try {
+      const params: Record<string, string> = { Type: 'setuserrole', CustID: custId, Role: role };
+      if (this.userId) params.RequesterID = this.userId;
+      return await this.makeRequest(params);
+    } catch (error) {
+      console.error("Failed to set user role:", error);
+      throw error;
+    }
+  }
+
+  async getUserRole(custId: string): Promise<{ CustID: string; role: 'user' | 'nurse' | 'admin' }> {
+    try {
+      const params = { Type: 'getuserrole', CustID: custId };
+      return await this.makeRequest(params);
+    } catch (error) {
+      console.error("Failed to get user role:", error);
+      return { CustID: custId, role: 'user' };
+    }
+  }
+
+  async getDependents(custId: string): Promise<{ CustID: string; Name: string }[]> {
+    try {
+      const params = { Type: 'getdependents', CustID: custId };
+      const result = await this.makeRequest<{ dependents: { CustID: string; Name: string }[] }>(params);
+      return result.dependents ?? [];
+    } catch (error) {
+      console.error("Failed to get dependents:", error);
+      return [];
+    }
+  }
+
+  async addDependent(parentId: string, childId: string): Promise<any> {
+    try {
+      const params = { Type: 'adddependent', ParentID: parentId, ChildID: childId, RequesterID: parentId };
+      return await this.makeRequest(params);
+    } catch (error) {
+      console.error("Failed to add dependent:", error);
+      throw error;
+    }
+  }
+
+  async removeDependent(parentId: string, childId: string): Promise<any> {
+    try {
+      const params = { Type: 'removedependent', ParentID: parentId, ChildID: childId, RequesterID: parentId };
+      return await this.makeRequest(params);
+    } catch (error) {
+      console.error("Failed to remove dependent:", error);
+      throw error;
+    }
+  }
+
   async getGroupData(groupName: string): Promise<GroupData> {
     console.log("--- DEBUG: 1. getGroupData STARTED ---");
     console.log("Group Name:", groupName);
     try {
-      const params = { Type: "getgroupdata", GroupName: groupName };
+      const params: Record<string, string> = { Type: "getgroupdata", GroupName: groupName };
+      if (this.userId) params.RequesterID = this.userId;
       console.log("--- DEBUG: 2. Calling makeRequest to AWS API ---");
       const encryptedGroupData = await this.makeRequest<GroupData>(params);
       console.log("--- DEBUG: 3. makeRequest SUCCEEDED ---");

@@ -21,6 +21,7 @@ const auth = getAuth(app);
 export interface AuthUser {
   id: string;
   email: string | null;
+  role: 'user' | 'nurse' | 'admin';
 }
 
 class FirebaseService {
@@ -31,7 +32,8 @@ class FirebaseService {
       
       return {
         id: user.uid,
-        email: user.email
+        email: user.email,
+        role: 'user',
       };
     } catch (error: any) {
       const errorMessage = error.message || "Authentication failed";
@@ -59,7 +61,8 @@ class FirebaseService {
     
     return {
       id: user.uid,
-      email: user.email
+      email: user.email,
+      role: 'user',
     };
   }
 }
