@@ -101,7 +101,6 @@ export function useUserData(): UserHydrationData {
   const { user } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [allConsumption, setAllConsumption] = useState<ConsumptionData>({});
-  const [todayConsumption, setTodayConsumption] = useState<ConsumptionData>({});
   const [streak, setStreak] = useState(0);
   const [goal, setGoal] = useState(60);
   const [loading, setLoading] = useState(true);
@@ -117,24 +116,23 @@ export function useUserData(): UserHydrationData {
 
     let cancelled = false;
 
-    const fetchAll = async () => {
+    // Initial load: fetch full history (cached after first load) + static fields.
+    // getTodayConsumption is intentionally omitted — today's data is already
+    // included in getAllConsumption, so deriving it from there saves one
+    // Lambda call and one Cloudflare decrypt roundtrip.
+    const initialLoad = async () => {
       setLoading(true);
       setError(null);
-
       try {
-        const [profileData, allData, todayData, streakVal, goalVal] = await Promise.all([
+        const [profileData, allData, streakVal, goalVal] = await Promise.all([
           awsApi.getUserProfile(custId),
           awsApi.getAllConsumption(custId),
-          awsApi.getTodayConsumption(custId),
           awsApi.getStreak(custId),
           awsApi.getGoal(custId),
         ]);
-
         if (cancelled) return;
-
         setProfile(parseProfile(profileData));
         setAllConsumption(allData);
-        setTodayConsumption(todayData);
         setStreak(streakVal);
         setGoal(goalVal);
       } catch (err) {
@@ -145,8 +143,24 @@ export function useUserData(): UserHydrationData {
       }
     };
 
-    fetchAll();
-    const interval = setInterval(fetchAll, 5 * 60 * 1000);
+    // Polling: only re-fetch today's sips and merge into the cached history.
+    // Historical data is immutable so there's no need to re-decrypt it.
+    const pollRefresh = async () => {
+      try {
+        const [merged, streakVal] = await Promise.all([
+          awsApi.refreshTodayInCache(custId),
+          awsApi.getStreak(custId),
+        ]);
+        if (cancelled) return;
+        setAllConsumption(merged);
+        setStreak(streakVal);
+      } catch (err) {
+        console.error("useUserData poll error:", err);
+      }
+    };
+
+    initialLoad();
+    const interval = setInterval(pollRefresh, 5 * 60 * 1000);
 
     return () => {
       cancelled = true;
@@ -155,10 +169,8 @@ export function useUserData(): UserHydrationData {
   }, [custId]);
 
   const dailyData = useMemo(() => parseConsumptionData(allConsumption), [allConsumption]);
-  const todayData = useMemo(() => {
-    const parsed = parseConsumptionData(todayConsumption);
-    return parsed[0] || null;
-  }, [todayConsumption]);
+  // todayData is derived from the full history — no separate fetch needed
+  const todayData = useMemo(() => dailyData[0] ?? null, [dailyData]);
 
   return { profile, dailyData, todayData, streak, goal, loading, error };
 }

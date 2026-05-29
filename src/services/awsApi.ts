@@ -14,6 +14,11 @@ export class AwsApiService {
   private baseUrl: string;
   private userId: string | null = null;
 
+  // Session-scoped cache: historical sip data never changes, so we only
+  // re-fetch today's slice on the polling interval instead of the full history.
+  private consumptionCache = new Map<string, { data: ConsumptionData; fetchedAt: number }>();
+  private readonly CACHE_TTL_MS = 30 * 60 * 1000; // 30 min
+
   constructor(userId: string | null = null) {
     this.baseUrl =
       "https://ajtwnkl2yb.execute-api.us-east-2.amazonaws.com/test/sponge";
@@ -438,20 +443,53 @@ export class AwsApiService {
   }
 
   async getAllConsumption(custId: string): Promise<ConsumptionData> {
+    const cached = this.consumptionCache.get(custId);
+    if (cached && Date.now() - cached.fetchedAt < this.CACHE_TTL_MS) {
+      return cached.data;
+    }
     try {
       const params = { Type: 'getconsumptionall', CustID: custId };
       const encrypted = await this.makeRequest<ConsumptionData>(params);
-      return await this.decryptConsumptionData(encrypted);
+      const data = await this.decryptConsumptionData(encrypted);
+      this.consumptionCache.set(custId, { data, fetchedAt: Date.now() });
+      return data;
     } catch (error) {
       console.error("Failed to get all consumption:", error);
-      return {};
+      return cached?.data ?? {};
+    }
+  }
+
+  // Fetch only today's sips, decrypt them, merge into the cached history, and
+  // return the merged dataset. Called by the polling interval so we avoid
+  // re-decrypting months of immutable historical data every 5 minutes.
+  async refreshTodayInCache(custId: string): Promise<ConsumptionData> {
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    try {
+      const params = { Type: 'getconsumptiondaynew', CustID: custId, Date: today };
+      const encrypted = await this.makeRequest<ConsumptionData>(params);
+      const todayData = await this.decryptConsumptionData(encrypted);
+
+      const cached = this.consumptionCache.get(custId);
+      const base: ConsumptionData = cached ? { ...cached.data } : {};
+
+      // Replace any stale today entry (key may be bare date or ISO string)
+      delete base[today];
+      delete base[`${today}T00:00:00.000Z`];
+      Object.assign(base, todayData);
+
+      this.consumptionCache.set(custId, { data: base, fetchedAt: cached?.fetchedAt ?? Date.now() });
+      return base;
+    } catch (error) {
+      console.error("Failed to refresh today consumption:", error);
+      return this.consumptionCache.get(custId)?.data ?? {};
     }
   }
 
   async getTodayConsumption(custId: string): Promise<ConsumptionData> {
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     try {
-      const now = new Date();
-      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
       const params = { Type: 'getconsumptiondaynew', CustID: custId, Date: today };
       const encrypted = await this.makeRequest<ConsumptionData>(params);
       return await this.decryptConsumptionData(encrypted);
@@ -459,6 +497,66 @@ export class AwsApiService {
       console.error("Failed to get today consumption:", error);
       return {};
     }
+  }
+
+  // Fetch today's data for multiple dependents and decrypt in a single batch
+  // request to Cloudflare instead of one POST per person.
+  async getDependentsTodaySummary(
+    custIds: string[]
+  ): Promise<Record<string, { todayOz: number }>> {
+    if (custIds.length === 0) return {};
+
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    // Fetch all raw (encrypted) today data in parallel from Lambda
+    const rawResults = await Promise.all(
+      custIds.map(id =>
+        this.makeRequest<ConsumptionData>({ Type: 'getconsumptiondaynew', CustID: id, Date: today })
+          .catch(() => ({} as ConsumptionData))
+      )
+    );
+
+    // Collect every encrypted value across all dependents into one flat array
+    type Slot = { custIdx: number; date: string; entryIdx: number; field: number };
+    const encryptedValues: string[] = [];
+    const slotMap: Slot[] = [];
+
+    rawResults.forEach((raw, custIdx) => {
+      for (const date in raw) {
+        raw[date].forEach((entry: any[], entryIdx: number) => {
+          for (let field = 1; field < entry.length; field++) {
+            const val = entry[field];
+            if (typeof val === 'string' && val.includes('^')) {
+              slotMap.push({ custIdx, date, entryIdx, field });
+              encryptedValues.push(val);
+            }
+          }
+        });
+      }
+    });
+
+    // One single POST to Cloudflare for all dependents
+    const decrypted = await this.decryptBatchServerSide(encryptedValues);
+
+    // Write decrypted values back into cloned raw results
+    const results: ConsumptionData[] = rawResults.map(r => JSON.parse(JSON.stringify(r)));
+    decrypted.forEach((val, i) => {
+      const { custIdx, date, entryIdx, field } = slotMap[i];
+      const num = val !== null ? parseFloat(val) : 0;
+      results[custIdx][date][entryIdx][field] = isNaN(num) ? 0 : num;
+    });
+
+    // Extract today's total for each custId
+    const summary: Record<string, { todayOz: number }> = {};
+    custIds.forEach((id, custIdx) => {
+      const data = results[custIdx];
+      const todayEntries = data[today] ?? data[`${today}T00:00:00.000Z`] ?? [];
+      const totalEntry = (todayEntries as any[][]).find(e => e[0] === '-1' || e[0] === -1);
+      summary[id] = { todayOz: totalEntry ? Number(totalEntry[1]) : 0 };
+    });
+
+    return summary;
   }
 
   async getMonthConsumption(custId: string, month: string): Promise<ConsumptionData> {

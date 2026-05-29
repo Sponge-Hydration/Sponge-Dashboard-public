@@ -25,21 +25,20 @@ export default function Family() {
     const load = async () => {
       const linked = await awsApi.getDependents(user.id);
 
-      const summaries = await Promise.all(
-        linked.map(async ({ CustID, Name }) => {
-          const today = new Date().toISOString().split("T")[0];
-          const [consumption, goal] = await Promise.all([
-            awsApi.getTodayConsumption(CustID),
-            awsApi.getGoal(CustID),
-          ]);
+      // Fetch goals and all today-data in parallel; today-data uses a single
+      // batch decrypt call for all dependents instead of one POST per person.
+      const custIds = linked.map(({ CustID }) => CustID);
+      const [todaySummary, ...goals] = await Promise.all([
+        awsApi.getDependentsTodaySummary(custIds),
+        ...linked.map(({ CustID }) => awsApi.getGoal(CustID)),
+      ]);
 
-          const todayEntries = consumption[today] ?? consumption[`${today}T00:00:00.000Z`] ?? [];
-          const totalEntry = todayEntries.find((e: any[]) => e[0] === "-1");
-          const todayOz = totalEntry ? Number(totalEntry[1]) : 0;
-
-          return { custId: CustID, name: Name, todayOz, goal };
-        })
-      );
+      const summaries = linked.map(({ CustID, Name }, i) => ({
+        custId: CustID,
+        name: Name,
+        todayOz: todaySummary[CustID]?.todayOz ?? 0,
+        goal: goals[i] as number,
+      }));
 
       setDependents(summaries);
       setLoading(false);
