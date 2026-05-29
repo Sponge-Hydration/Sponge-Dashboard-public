@@ -96,7 +96,7 @@ export function useAwsData() {
   
     try {
       const [newGroupData, newNurses, newRooms, newNames] = await Promise.all([
-        awsApi.getGroupData(userGroup),
+        awsApi.getGroupDailyTotals(userGroup),
         awsApi.getNurses(userGroup),
         awsApi.getRooms(userGroup),
         awsApi.getNames(userGroup)

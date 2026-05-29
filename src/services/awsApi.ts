@@ -158,6 +158,47 @@ export class AwsApiService {
     }
   }
 
+  async getGroupDailyTotals(groupName: string): Promise<GroupData> {
+    try {
+      const params: Record<string, string> = { Type: 'getgroupdailytotals', GroupName: groupName };
+      if (this.userId) params.RequesterID = this.userId;
+
+      // Returns { custId: { date: encrypted_total_string } }
+      const raw = await this.makeRequest<Record<string, Record<string, string>>>(params);
+
+      // Collect all encrypted values in order for batch decryption
+      type Entry = { custId: string; date: string };
+      const order: Entry[] = [];
+      const encryptedValues: string[] = [];
+
+      for (const custId in raw) {
+        for (const date in raw[custId]) {
+          const val = raw[custId][date];
+          order.push({ custId, date });
+          encryptedValues.push(val);
+        }
+      }
+
+      const decrypted = await this.decryptBatchServerSide(encryptedValues);
+
+      // Rebuild as GroupData (one [id, value] tuple per date)
+      const result: GroupData = {};
+      order.forEach(({ custId, date }, i) => {
+        const utcDate = `${date}T00:00:00.000Z`;
+        if (!result[custId]) result[custId] = {};
+        const raw = decrypted[i];
+        const num = raw !== null ? parseFloat(raw) : 0;
+        result[custId][utcDate] = [['total', isNaN(num) ? 0 : num]];
+      });
+
+      return result;
+    } catch (error) {
+      console.error("Failed to get group daily totals:", error);
+      toast.error("Failed to get group data");
+      return {};
+    }
+  }
+
   async getGroupData(groupName: string): Promise<GroupData> {
     console.log("--- DEBUG: 1. getGroupData STARTED ---");
     console.log("Group Name:", groupName);
