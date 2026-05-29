@@ -362,7 +362,8 @@ export class AwsApiService {
 
   async getStreak(custId: string): Promise<number> {
     try {
-      const today = new Date().toISOString().split('T')[0];
+      const now = new Date();
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
       const params = { Type: 'getstreak', CustID: custId, Date: today };
       const result = await this.makeRequest<string[]>(params);
       return parseInt(result[0]) || 0;
@@ -408,7 +409,8 @@ export class AwsApiService {
 
   async getTodayConsumption(custId: string): Promise<ConsumptionData> {
     try {
-      const today = new Date().toISOString().split('T')[0];
+      const now = new Date();
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
       const params = { Type: 'getconsumptiondaynew', CustID: custId, Date: today };
       const encrypted = await this.makeRequest<ConsumptionData>(params);
       return await this.decryptConsumptionData(encrypted);
